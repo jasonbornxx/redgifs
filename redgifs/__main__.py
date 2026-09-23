@@ -69,13 +69,21 @@ def _dl_with_args(client: API, gif: GIF | Image, quality: str, folder: Optional[
 
     dir_ = f'{folder}/{filename}' if folder else filename
 
-    # NEW: skip if already downloaded
-    if os.path.exists(dir_):
+    # Skip if already downloaded (and not just an empty/partial leftover file)
+    if os.path.exists(dir_) and os.path.getsize(dir_) > 0:
         return
 
     client.download(gif_url, dir_)
 
-def download_users_gifs(client: API, url: yarl.URL, quality: str, folder: Optional[Path], images_only: bool):
+
+def download_users_gifs(
+    client: API,
+    url: yarl.URL,
+    quality: str,
+    folder: Optional[Path],
+    images_only: bool,
+    start: int = 0,
+):
     match = re.match(r'https://(www\.)?redgifs\.com\/users\/(?P<username>[\w-]+)', str(url))
     if not match:
         click.UsageError(f'Not a valid redgifs user URL: {url}')
@@ -92,15 +100,19 @@ def download_users_gifs(client: API, url: yarl.URL, quality: str, folder: Option
     media_items = data.images if is_image else data.gifs
     total = data.total
     done = 0
+    index = 0  # overall position across all items, across all pages
 
     spinner = itertools.cycle(['-', '\\', '|', '/'])
 
     while curr_page <= total_pages:
         for item in media_items:
+            index += 1
+            if index <= start:
+                continue
             try:
                 _dl_with_args(client, item, quality, folder, is_image)
                 done += 1
-                click.echo(f'\r{next(spinner)} Downloading {done}/{total} {"images" if is_image else "GIFs"}...', nl=False)
+                click.echo(f'\r{next(spinner)} Downloading {index}/{total} {"images" if is_image else "GIFs"}...', nl=False)
             except Exception as e:
                 click.echo(f'[!] An error occurred when downloading {url}: {e}\nContinuing...')
                 continue
@@ -114,7 +126,8 @@ def download_users_gifs(client: API, url: yarl.URL, quality: str, folder: Option
 
     folder_info = f"to folder '{folder}'" if folder else ''
     click.echo(
-        f'\r[-] Downloaded {done}/{total} {"images" if is_image else "GIFs"} of user {user} {folder_info} successfully!'
+        f'\r[-] Downloaded {done}/{max(total - start, 0)} {"images" if is_image else "GIFs"} of user {user} '
+        f'{folder_info} successfully! (started at index {start})'
     )
 
 
@@ -145,6 +158,13 @@ def download_users_gifs(client: API, url: yarl.URL, quality: str, folder: Option
     metavar='FILE_NAME',
 )
 @click.option('--images', is_flag=True, help='Download only images from a user profile.')
+@click.option(
+    '-s',
+    '--start',
+    default=0,
+    type=int,
+    help='Skip this many items before starting the download (for resuming a user-profile download).',
+)
 @click.pass_context
 def cli(
     ctx: click.Context,
@@ -154,6 +174,7 @@ def cli(
     file: Optional[str],
     version: bool,
     images: bool,
+    start: int,
 ) -> None:
     if version:
         info = []
@@ -182,4 +203,4 @@ def cli(
 
         # Handle /users/ URLs (eg: https://redgifs.com/users/redgifs)
         if '/users/' in url.path:
-            download_users_gifs(client, url, quality, folder, images)
+            download_users_gifs(client, url, quality, folder, images, start)
