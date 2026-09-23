@@ -25,6 +25,7 @@ DEALINGS IN THE SOFTWARE.
 from __future__ import annotations
 
 import re
+import os
 import sys
 import platform
 import itertools
@@ -61,21 +62,18 @@ def download_gif(client: API, url: yarl.URL, quality: str, folder: Optional[Path
 
 def _dl_with_args(client: API, gif: GIF | Image, quality: str, folder: Optional[Path], is_image: bool):
     gif_url = gif.urls.sd if quality == 'sd' else gif.urls.hd or gif.urls.sd
-
-    if gif_url is None:  # guard clause
-        click.echo(f'No URL available for GIF {id}, skipping.')
-        return
-
     filename = f'{gif_url.split("/")[3].split(".")[0]}.mp4'
     if is_image:
         name, ext = gif_url.split('/')[3].split('.')
         filename = f'{name}.{ext}'
 
-    if folder:
-        client.download(gif_url, f'{folder}/{filename}')
-    else:
-        client.download(gif_url, f'{filename}')
+    dir_ = f'{folder}/{filename}' if folder else filename
 
+    # NEW: skip if already downloaded
+    if os.path.exists(dir_):
+        return
+
+    client.download(gif_url, dir_)
 
 def download_users_gifs(client: API, url: yarl.URL, quality: str, folder: Optional[Path], images_only: bool):
     match = re.match(r'https://(www\.)?redgifs\.com\/users\/(?P<username>[\w-]+)', str(url))
